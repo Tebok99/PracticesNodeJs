@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Theater Reservation</title>
+    <style>
+        .line {
+            overflow: hidden;
+        }
+        .seat {
+            margin: 2px;
+            float: left;
+            width: 30px;
+            height: 30px;
+            border-radius: 3px;
+        }
+        .coupleSeat {
+            float: left;
+            background: yellow;
+            opacity: 0.4;
+        }
+        .coupleReserved {
+            float: left;
+            background: orange;
+            border: 1px solid darkred;
+            opacity: 0.4;
+        }
+        .coupleReserved:hover {
+            background: yellow;
+            opacity: 0.7;
+        }
+        .coupleReserved > div.seat {
+            margin: 1px 1px 1px 2px;
+        }
+        .enable {
+            background: gray;
+        }
+        .enable:hover {
+            background: black;
+        }
+        .disable {
+            background: red;
+        }
+        fieldset {
+            display: inline;
+            margin: 0;
+            padding: 1px;
+            border: none;
+        }
+        #movie, #schedule, #count {
+            width: 150px;
+            height: 80px;
+        }
+        optgroup[disabled] {
+            display: none;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- 소켓 생성 -->
+    <script>
+        // 소켓 이벤트 수행
+        var socket = io.connect();
+
+        // 이벤트 연결
+        socket.on("reserve", function (data) {
+            var $target = $("div[data-x="+ data.x +"][data-y="+ data.y +"]");
+            $target.removeClass("enable");
+            $target.addClass("disable");
+        });
+
+        socket.on("cancel", function (data) {
+            var $target = $("div[data-x="+ data.x +"][data-y="+ data.y +"]");
+            $target.removeClass("disable");
+            $target.addClass("enable");
+        });
+    </script>
+    <!-- 초기 좌석 생성 -->
+    <script>
+        $(document).ready(function () {
+            // 선택된 영화와 시간표를 저장하는 변수
+            var selectedMovieSchedule = {};
+
+            // 커플좌석 확인 mouseover 이벤트 리스너 선언
+            var onOverCoupleSeat = function () {
+
+                var $coupleSeat = $("<div></div>").addClass("coupleSeat").click(onClickCoupleSeat);
+
+                // 커플좌석으로 예약 가능한 자리를 가리킵니다.
+                if ($(this).hasClass("enable") && $(this.nextElementSibling).hasClass("enable")) {
+                    $([this, this.nextElementSibling]).wrapAll($coupleSeat);
+                }
+            };
+            var onOutCoupleSeat = function () {
+                if ($(this).parent().hasClass("coupleSeat"))
+                    $(this).unwrap();
+            };
+
+            // 커플좌석 예약 click 이벤트 리스너 선언
+            var onClickCoupleSeat = function () {
+                // 커플좌석 예약 취소
+                if ($(this).hasClass("coupleReserved")) {
+                    if(confirm("커플좌석 예약을 취소합니까?")) {
+                        $(this).children().each(function () {
+                            socket.emit("cancel", Object.assign(selectedMovieSchedule, {
+                                x: $(this).attr("data-x"),
+                                y: $(this).attr("data-y"),
+                            }));
+                        });
+                        $(this.firstElementChild).unwrap();
+                    } else {
+                        alert("취소하였습니다.");
+                    }
+                } else {
+                    // 커플좌석 예약
+                    if (confirm("커플좌석으로 예약하겠습니까?")) {
+                        console.log(this);
+                        $(this).children().each(function () {
+                            socket.emit("coupleReserve", Object.assign(selectedMovieSchedule, {
+                                x: $(this).attr("data-x"),
+                                y: $(this).attr("data-y"),
+                            }));
+                        });
+                        $(this).removeClass("coupleSeat").addClass("coupleReserved");
+                    } else {
+                        alert("취소하였습니다.");
+                    }
+                }
+            };
+
+            // 1인 자리 예약 이벤트 리스너 선언
+            var onClickSeat = function () {
+                var x = $(this).attr("data-x");
+                var y = $(this).attr("data-y");
+
+                // 이미 예약된 좌석을 click하면 예약 취소를 진행한다.
+                if ($(this).hasClass("disable")) {
+                    if (confirm("예약을 취소합니까?")) {
+                        socket.emit("cancel", Object.assign(selectedMovieSchedule, {
+                            x: x,
+                            y: y,
+                        }));
+                    } else {
+                        alert("취소하였습니다.");
+                    }
+                } else {
+                    // 좌석을 예약 합니다.
+                    if (confirm("좌석을 예약하겠습니까?")) {
+                        // $(this).off("click");
+                        socket.emit("reserve", Object.assign(selectedMovieSchedule, {
+                            x: x,
+                            y: y,
+                        }));
+                    } else {
+                        alert("취소하였습니다.");
+                    }
+                }
+            };
+
+
+            // 예약 인원 수 select 요소 click 이벤트 리스너 선언 
+            // (인원 수에 따라 좌석선택을 다르게 표시합니다.)
+            $("#count").click(function () {
+                
+                if ($("#movie").val() && $("#schedule :selected").val() && $("#count").val()) {
+                    selectedMovieSchedule = { 
+                        movieTitle: $("#movie").val(), 
+                        schedule: $("#schedule :selected").val(),
+                    };
+
+                    $("main").empty();
+                    
+                    switch ($(this).val()) {
+                        case "1":
+                            // 1인석 예약화면 Ajax 수행
+                            $.getJSON("/seats", Object.assign(selectedMovieSchedule, { 
+                                dummy: new Date().getTime() 
+                            }), doSeatReserveAjax);
+                            break;
+                        case "2":
+                            // 커플석 예약화면 Ajax 진행
+                            $.getJSON("/coupleSeat", Object.assign(selectedMovieSchedule, { 
+                                dummy: new Date().getTime() 
+                            }), doCoupleReserveAjax);
+                            break;
+                        default:
+                    }
+                }
+            });
+
+
+            // 영화 스케줄 정보를 요청하는 Ajax 통신
+            $.getJSON("/movies_schedule", { dummy: new Date().getTime() }, function (data) {
+                $.each(data, function (index, movie) {
+                    $("<option></option>").val(movie.title).text(movie.title).appendTo("#movie");
+
+                    $("<optgroup></optgroup>").attr("label", movie.title).prop("disabled",true).appendTo("#schedule");
+
+                    $.each(movie.timetable, function () {
+                        $("<option></option>").val(this).text(this).appendTo("#schedule > :last-child");
+                    });
+                });
+            });
+
+            // 1인 예약 좌석선택 화면을 위한 Ajax callback fn
+            function doSeatReserveAjax(data) {
+                $.each(data, function (indexY, line) {
+                    var $line = $("<div></div>").addClass("line");
+
+                    $.each(line, function (indexX, seat) {
+                        var $seat = $("<div></div>", {
+                            "class": "seat",
+                            "data-x": indexX,
+                            "data-y": indexY,
+                        }).appendTo($line);
+                        if (seat == 1) {
+                            // 좌석이 비어 있으면 enable 클래스와 click 리스너 추가
+                            $seat.addClass("enable").on("click", onClickSeat);
+                        } else if (seat == 2) {
+                            // 좌석이 예약 되었다면 disable 클래스와 click 리스너 추가
+                            $seat.addClass("disable").on("click", onClickSeat);
+                        } else if (seat == 3) {
+                            // 커플좌석이 예약 되었다면 disable 클래스 추가
+                            $seat.addClass("disable");
+                        }
+                    });
+                    // 문서 객체를 추가
+                    $line.appendTo("main");
+                });
+            }
+
+            // 2인 예약 좌석선택 화면을 위한 Ajax callback fn
+            function doCoupleReserveAjax(data) {
+                $.each(data, function (indexY, line) {
+                    var $line = $("<div></div>").addClass("line");
+                    var $tempSeat = null;
+
+                    $.each(line, function (indexX, seat) {
+                        var $seat = $("<div></div>", {
+                            "class": "seat",
+                            "data-x": indexX,
+                            "data-y": indexY,
+                        }).appendTo($line);
+
+                        if (seat == 1) {
+                            // 좌석이 비어 있으면 enable 클click 리스너 추가
+                            $seat.addClass("enable").hover(onOverCoupleSeat, onOutCoupleSeat);
+                        } 
+                        else if (seat == 2) {
+                            // 좌석이 예약 되었다면 disable 추가
+                            $seat.addClass("disable").hover(onOverCoupleSeat, onOutCoupleSeat);
+                        } 
+                        else if (seat == 3) {
+                            // 커플좌석이 예약 되coupleReserved 클래스와 click 리스너 추가
+                            $seat.addClass("disable").hover(onOverCoupleSeat, onOutCoupleSeat);
+                            if ($seat.prev().is($tempSeat)) {
+                                var $coupleSeat = $("<div></div>").addClass("coupleReserved").on("click", onClickCoupleSeat);
+                                $([$tempSeat.get(0), $seat.get(0)]).wrapAll($coupleSeat);
+                                $tempSeat = null;
+                            } else {
+                                $tempSeat = $seat;
+                            }
+                        }
+                    });
+                    // 문서 객체를 추가
+                    $line.appendTo("main");
+                });
+            }
+        });
+
+    // 영화제목을 선택하면 그에 해당하는 시간목록을 select 요소에 표시합니다.
+    function onClickMovie(elem) {
+        $("#schedule > optgroup").each(function () {
+
+            if (elem.options[elem.selectedIndex].value == $(this).attr("label")) {
+                $(this).prop("disabled", false);
+            } else {
+                $(this).prop("disabled", true);
+            }
+        });
+    }
+    </script>
+</head>
+<body>
+    <fieldset><legend>영화 선택</legend><select id="movie" size=3 onclick="onClickMovie(this)"></select></fieldset>
+    <fieldset><legend>상영시간 선택</legend><select id="schedule" size=3></select></fieldset>
+    <fieldset><legend>예약인원</legend><select id="count" size=3>
+        <option selected="true"></option>
+        <option value="1">1인석 예약관리</option>
+        <option value="2">2인(커플)석 예약관리</option>
+    </select>
+    </fieldset>
+    <main></main>
+</body>
+</html>
