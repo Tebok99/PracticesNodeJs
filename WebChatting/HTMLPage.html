@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Web Mobile Chatting Room</title>
+    <link rel="stylesheet" href="https://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.css" />
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-1.11.1.min.js"></script>
+    <script src="https://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.js"></script>
+    <script>
+        $(window).ready(function () {
+            var socket = io.connect();
+            
+            // 메시지 수신
+            socket.on("message", function (data) {
+                var output = "";
+                output += ("<li>");
+                    output += ("<h3 style='white-space:pre-wrap'>"+data.name+"</h3>");
+                    output += ("<p style='white-space:pre-wrap'>"+data.message+"</p>");
+                    output += ("<p>"+data.date+"</p>");
+                output += ("</li>");
+                
+                $(output).prependTo("#content");
+                $("#content").listview("refresh");
+            });
+
+            // 대화방 목록을 표시
+            socket.on("roomlist", function (data) {
+                // user_setting page가 비활성일 때에는 아래 명령을 실행하지 않는다.
+                if ($("#user_setting").css("display") == "none")
+                    return;
+
+                $("#roomlist").empty();
+                
+                // console.log(data);
+                for (var room of data) {
+                    $("<li><a data-role='button'><button value='"
+                        + room.room + "' style='display:none' />"
+                        +"<h3>Room: "+room.room+"</h3>"
+                        +"<p class='ui-li-aside'>Username: "+room.username+"</p></a></li>").appendTo("#roomlist");
+                }
+                $("#roomlist").listview("refresh");
+            });    
+
+            // 대화방을 생성하거나 기존 대화방 목록에서 선택할 수 있다.
+            $("#roomlist").click(function (e) {
+                $("#room").val($("button", e.target.parentElement).val());
+            });
+
+            // 대화방 이름을 송신합니다.
+            $("#goChatpage").on("click", function () {
+                    var isEmpty = ( $.trim($("#room").val()) === "" ) || ( $.trim($("#name").val()) === "" );
+
+                    if (!isEmpty)
+                        socket.emit("join", {
+                            room: $("#room").val(), username: $("#name").val()
+                        });
+                }
+            );
+
+            // Nick Name과 Chatting Room 선택해야만 메시지 보낼 수 있다.
+            $("#goChatpage").mouseenter( function () {
+                var isBlank = true;
+                
+                $("#name, #room").each(function (index, elem) {
+                    if (elem.value.trim() === "")
+                        isBlank = false;
+                });
+                if (isBlank)
+                    $("#goChatpage").attr("href", "#chatpage");
+                else
+                    $("#goChatpage").attr("href", "#");
+            });
+
+            // input 태그에 focus가 되면 입력 내용을 모두 선택영역으로 지정한다. (키보드 입력 시 기존 내용을 갱신하게 됨)
+            $("#message").click(function () {
+                $(this).select();
+            });
+
+            // 메시지 전송            
+            $("#chatpage button").click(function () {
+                // input 태그 value가 비어 있다면 message 전송은 하지 않는다.
+                if ( $.trim($("#message").val()) === "" )
+                    return;
+
+                socket.emit("message", {
+                    name: $("#name").val(),
+                    message: $("#message").val(),
+                    date: new Date().toUTCString(),
+                });
+            });
+
+            // user_setting으로 돌아가게 되면 대화방을 나가게 된다.
+            $("#chatpage a").click(function () {
+                socket.emit("leave", $("#room").val());
+            });
+
+            // express-generator 모듈을 이용한다.
+        });
+    </script>
+</head>
+<body>
+    <div data-role="page" id="user_setting">
+        <div data-role="header">
+            <h1>Socket.io Chat</h1>
+        </div>
+        <div data-role="content">
+            <div data-role="fieldcontain">
+                <label for="name">Nick Name</label><input id="name" />
+            </div>
+            <div data-role="fieldcontain">
+                <label for="room">Chatting Room</label><input id="room" />
+            </div>
+            
+            <!-- 방을 생성하거나 아래 목록에서 선택  -->
+            <a data-role="button" id="goChatpage" href="">Start Chat</a>
+            <ul id="roomlist" data-role="listview" data-inset="true" data-filter="true" data-filter-placeholder="Searching Room Name"></ul>
+        </div>
+    </div>
+    <div data-role="page" id="chatpage">
+        <div data-role="header">
+            <h1>Socket.io Chat</h1>
+            <!-- 사용자 설정 버튼(이름, 방 가입 및 생성) 좌측 -->
+            <a data-role="button" href="#user_setting">&lt; User Setting</a>
+        </div>
+        <div data-role="content">
+            <input id="message" />
+            <button>Send</button>
+            <ul id="content" data-role="listview" data-inset="true"></ul>
+        </div>
+    </div>
+    <!-- <h1>Socket.io Chat</h1>
+    <p>Chat With Node.js</p>
+    <hr />
+    <input id="name" />
+    <input id="message" />
+    <button>Button</button>
+    <ul id="content"></ul> -->
+</body>
+</html>
